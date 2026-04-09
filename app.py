@@ -1,45 +1,76 @@
 import streamlit as st
-import random
-import time
+import google.generativeai as genai
+import pandas as pd
+import numpy as np
 
-# --- APP CONFIG ---
-st.set_page_config(page_title="SimuBot: AI Simulation Assistant", layout="centered")
-st.title("🤖 SimuBot: AI Project Assistant")
-st.subheader("Simulating EV Performance & Control Systems")
+# --- 1. CONFIGURATION & SECURITY ---
+# Access your API key from Streamlit Secrets (for GitHub hosting)
+try:
+    API_KEY = st.secrets["GEMINI_API_KEY"]
+    genai.configure(api_key=API_KEY)
+except:
+    st.error("Please set the GEMINI_API_KEY in your Streamlit Secrets or secrets.toml.")
+    st.stop()
 
-# --- SIMULATION ENGINE (The 'AI' Logic) ---
-def run_simulation(parameter_x):
-    """Simple simulation logic: Replace this with your actual AI/Math model"""
-    time.sleep(1) # Simulate processing
-    result = parameter_x * random.uniform(0.8, 1.2)
-    return result
+st.set_page_config(page_title="SimuExpert AI", layout="wide")
 
-# --- CHATBOT INTERFACE ---
+# --- 2. SYSTEM INSTRUCTIONS (The "Brain") ---
+SYSTEM_PROMPT = """
+You are an expert AI Simulation Engineer specializing in Electric Vehicles and Control Systems.
+For every user prompt, follow this structure:
+1. THE CONCEPT (In): Explain the fundamental physics or engineering theory.
+2. THE MODEL: Describe how this would be simulated in tools like Simulink, Simscape, or Ansys.
+3. THE OUTCOME (Out): Explain what the results mean for real-world EV performance.
+Use technical terms like 'Torque Ripple', 'State of Charge (SOC)', or 'Proportional-Integral (PI) Control' accurately.
+"""
+
+model = genai.GenerativeModel('gemini-1.5-flash', system_instruction=SYSTEM_PROMPT)
+
+# --- 3. UI LAYOUT ---
+st.title("⚡ SimuExpert: Advanced Engineering Chatbot")
+st.markdown("---")
+
+# Initialize Chat History
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Display chat history
+# Sidebar for Simulation Parameters
+with st.sidebar:
+    st.header("Simulation Workbench")
+    motor_rpm = st.slider("Motor RPM", 0, 15000, 5000)
+    battery_temp = st.slider("Battery Temp (°C)", -10, 60, 25)
+    if st.button("Reset Chat"):
+        st.session_state.messages = []
+        st.rerun()
+
+# Display Chat History
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# User Input
-if prompt := st.chat_input("Ask about your simulation (e.g., 'Predict EV motor efficiency at 5000 RPM')"):
+# --- 4. CHAT LOGIC ---
+if prompt := st.chat_input("Ask about motor efficiency, battery thermal modeling, etc."):
+    # Add user message to history
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # Bot Response Logic
+    # Generate AI Response
     with st.chat_message("assistant"):
-        response_placeholder = st.empty()
-        
-        # Simple Logic: If user mentions 'simulate', run the function
-        if "simulate" in prompt.lower():
-            val = run_simulation(100)
-            full_response = f"I've run the simulation. Based on your inputs, the predicted efficiency is {val:.2f}%."
-        else:
-            full_response = "I am ready to help with your simulation. Try saying 'Simulate motor heat'."
-        
-        response_placeholder.markdown(full_response)
-    
+        with st.spinner("Analyzing Physics..."):
+            # Include chat history for context-aware explanations
+            chat = model.start_chat(history=[
+                {"role": "user" if m["role"] == "user" else "model", "parts": [m["content"]]}
+                for m in st.session_state.messages[:-1]
+            ])
+            
+            response = chat.send_message(prompt)
+            full_response = response.text
+            st.markdown(full_response)
+            
+            # Context-Aware Visualization
+            if "efficiency" in prompt.lower() or "power" in prompt.lower():
+                data = pd.DataFrame(np.random.randn(20, 2), columns=['Efficiency', 'Power Loss'])
+                st.line_chart(data)
+
     st.session_state.messages.append({"role": "assistant", "content": full_response})
