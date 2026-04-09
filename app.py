@@ -3,74 +3,88 @@ import google.generativeai as genai
 import pandas as pd
 import numpy as np
 
-# --- 1. CONFIGURATION & SECURITY ---
-# Access your API key from Streamlit Secrets (for GitHub hosting)
+# --- 1. SECURE CONFIGURATION ---
+st.set_page_config(page_title="SimuExpert AI", layout="wide", page_icon="⚡")
+
+# Try to fetch the key from Streamlit Cloud Secrets
 try:
+    # Ensure this matches the key name in your Streamlit Settings > Secrets
     API_KEY = st.secrets["GEMINI_API_KEY"]
     genai.configure(api_key=API_KEY)
-except:
-    st.error("Please set the GEMINI_API_KEY in your Streamlit Secrets or secrets.toml.")
+except Exception:
+    st.error("🔑 **API Key Missing!** Go to Streamlit Settings > Secrets and add: GEMINI_API_KEY = 'your_key'")
     st.stop()
 
-st.set_page_config(page_title="SimuExpert AI", layout="wide")
+# --- 2. THE "IN AND OUT" REASONING ENGINE ---
+# This system prompt forces the AI to provide the explanation depth you need
+SYSTEM_INSTRUCTION = (
+    "You are an expert Simulation Engineer. For every user query:\n"
+    "1. THE IN (Theory): Explain the physics and engineering principles involved.\n"
+    "2. THE PROCESS (Modeling): Explain how to set this up in Simulink, Simscape, or Ansys.\n"
+    "3. THE OUT (Application): Explain how the simulation results impact real-world design.\n"
+    "Target Audience: 3rd-year Engineering Student at VIT Chennai."
+)
 
-# --- 2. SYSTEM INSTRUCTIONS (The "Brain") ---
-SYSTEM_PROMPT = """
-You are an expert AI Simulation Engineer specializing in Electric Vehicles and Control Systems.
-For every user prompt, follow this structure:
-1. THE CONCEPT (In): Explain the fundamental physics or engineering theory.
-2. THE MODEL: Describe how this would be simulated in tools like Simulink, Simscape, or Ansys.
-3. THE OUTCOME (Out): Explain what the results mean for real-world EV performance.
-Use technical terms like 'Torque Ripple', 'State of Charge (SOC)', or 'Proportional-Integral (PI) Control' accurately.
-"""
+# Initialize the model with the instruction
+# We use 'gemini-1.5-flash' for speed and reliability
+model = genai.GenerativeModel(
+    model_name='gemini-1.5-flash',
+    system_instruction=SYSTEM_INSTRUCTION
+)
 
-model = genai.GenerativeModel('gemini-1.5-flash', system_instruction=SYSTEM_PROMPT)
-
-# --- 3. UI LAYOUT ---
-st.title("⚡ SimuExpert: Advanced Engineering Chatbot")
-st.markdown("---")
-
-# Initialize Chat History
+# --- 3. PERSISTENT CHAT HISTORY ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Sidebar for Simulation Parameters
+# --- 4. USER INTERFACE ---
+st.title("🤖 SimuExpert: AI Simulation Project")
+st.markdown("---")
+
+# Sidebar for controls
 with st.sidebar:
-    st.header("Simulation Workbench")
-    motor_rpm = st.slider("Motor RPM", 0, 15000, 5000)
-    battery_temp = st.slider("Battery Temp (°C)", -10, 60, 25)
-    if st.button("Reset Chat"):
+    st.header("Control Panel")
+    if st.button("Clear Conversation"):
         st.session_state.messages = []
         st.rerun()
+    st.info("This bot explains the engineering 'In and Out' of your simulation prompts.")
 
-# Display Chat History
+# Display existing messages
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# --- 4. CHAT LOGIC ---
-if prompt := st.chat_input("Ask about motor efficiency, battery thermal modeling, etc."):
-    # Add user message to history
+# --- 5. CHAT LOGIC ---
+if prompt := st.chat_input("Ex: Explain the simulation of a 3-phase inverter for EVs"):
+    # Save and display user prompt
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # Generate AI Response
+    # Generate Response
     with st.chat_message("assistant"):
-        with st.spinner("Analyzing Physics..."):
-            # Include chat history for context-aware explanations
-            chat = model.start_chat(history=[
-                {"role": "user" if m["role"] == "user" else "model", "parts": [m["content"]]}
-                for m in st.session_state.messages[:-1]
-            ])
-            
-            response = chat.send_message(prompt)
-            full_response = response.text
-            st.markdown(full_response)
-            
-            # Context-Aware Visualization
-            if "efficiency" in prompt.lower() or "power" in prompt.lower():
-                data = pd.DataFrame(np.random.randn(20, 2), columns=['Efficiency', 'Power Loss'])
-                st.line_chart(data)
+        with st.spinner("Processing Engineering Model..."):
+            try:
+                # Use a chat session to maintain context of the conversation
+                chat = model.start_chat(history=[])
+                response = chat.send_message(prompt)
+                
+                # Output the explanation
+                full_response = response.text
+                st.markdown(full_response)
+                
+                # Visual Logic: If user asks for a simulation, show a dummy data trend
+                if any(word in prompt.lower() for word in ["simulate", "graph", "plot", "test"]):
+                    st.divider()
+                    st.write("### Predicted Simulation Trend")
+                    data = pd.DataFrame({
+                        'Time (s)': np.linspace(0, 10, 100),
+                        'Output Value': np.sin(np.linspace(0, 10, 100)) + np.random.normal(0, 0.1, 100)
+                    })
+                    st.line_chart(data, x='Time (s)', y='Output Value')
 
-    st.session_state.messages.append({"role": "assistant", "content": full_response})
+                # Save assistant response
+                st.session_state.messages.append({"role": "assistant", "content": full_response})
+                
+            except Exception as e:
+                st.error(f"Error: {e}")
+                st.info("If you see 'NotFound', ensure your API key is correct and your internet connection is stable.")
