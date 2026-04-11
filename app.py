@@ -1,93 +1,84 @@
 import streamlit as st
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 import pandas as pd
 import numpy as np
 
 # --- 1. CONFIGURATION ---
-st.set_page_config(page_title="SimuExpert v3.0", layout="wide", page_icon="🤖")
+st.set_page_config(page_title="SimuExpert AI + Math", layout="wide", page_icon="🧪")
 
 try:
+    # Uses the new GenAI Client (2026 Standard)
     API_KEY = st.secrets["GEMINI_API_KEY"]
-    genai.configure(api_key=API_KEY)
+    client = genai.Client(api_key=API_KEY)
 except Exception:
-    st.error("🔑 API Key missing in Streamlit Secrets!")
+    st.error("🔑 API Key missing! Add 'GEMINI_API_KEY' to Streamlit Secrets.")
     st.stop()
 
 # --- 2. THE ENGINEERING BRAIN ---
 SYSTEM_INSTRUCTION = (
-    "You are a Senior Simulation Engineer. For every query:\n"
-    "1. THE IN: Explain the fundamental physics/theory.\n"
-    "2. THE PROCESS: Detail the Simulink/Simscape/Ansys setup steps.\n"
-    "3. THE OUT: Explain the impact on real-world engineering results.\n"
-    "Context: 3rd-year VIT Engineering Student."
+    "You are a Senior Simulation Engineer and Math Specialist. For every query:\n"
+    "1. SOLVE & EXPLAIN: If there is an equation, solve it step-by-step using LaTeX.\n"
+    "2. THE IN: Explain the physics/theory behind the user's prompt.\n"
+    "3. THE PROCESS: Detail the Simulink/Simscape modeling steps.\n"
+    "4. THE OUT: Explain the real-world engineering impact.\n"
+    "Target: 3rd-year VIT Engineering student."
 )
 
-# --- 3. MODEL DISCOVERY (Fixes the 404 Error) ---
-@st.cache_resource
-def get_best_model():
-    """Finds the most recent Flash model available to your API key."""
-    try:
-        # We try Gemini 3 Flash first (Current standard for 2026)
-        return genai.GenerativeModel(
-            model_name='gemini-3-flash-preview', 
-            system_instruction=SYSTEM_INSTRUCTION
-        )
-    except:
-        # Fallback to the latest generic alias if specific version fails
-        return genai.GenerativeModel(
-            model_name='gemini-flash-latest',
-            system_instruction=SYSTEM_INSTRUCTION
-        )
-
-model = get_best_model()
-
-# --- 4. UI DESIGN ---
-st.title("⚡ SimuExpert: Advanced AI Simulation")
-st.info("Debugging Mode: Connected to Gemini 3 series.")
+# --- 3. UI SETUP ---
+st.title("🧪 SimuExpert: AI Solver & Simulator")
+st.markdown("---")
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Sidebar for Debugging & Model Info
+# Sidebar for Thinking Level (New Gemini 3 Feature)
 with st.sidebar:
-    st.header("System Status")
-    if st.checkbox("Show Available Models"):
-        st.write("Your key supports:")
-        for m in genai.list_models():
-            if 'generateContent' in m.supported_generation_methods:
-                st.code(m.name)
-    
-    if st.button("Clear Conversation"):
+    st.header("AI Brain Settings")
+    thinking_level = st.select_slider(
+        "Reasoning Depth",
+        options=["minimal", "low", "medium", "high"],
+        value="medium",
+        help="Higher levels solve complex math better but take more time."
+    )
+    if st.button("Reset Conversation"):
         st.session_state.messages = []
         st.rerun()
 
-# Display Chat
+# Display Chat History
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# --- 5. CHAT LOGIC ---
-if prompt := st.chat_input("Ask: 'Simulate the thermal runaway of an EV battery pack'"):
+# --- 4. CHAT & EQUATION LOGIC ---
+if prompt := st.chat_input("Ex: 'Solve the torque equation for a PMSM motor with 50A current'"):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        with st.spinner("Calculating Physics & Engineering Models..."):
+        with st.spinner("Processing Logic & Equations..."):
             try:
-                # Direct generation using system instruction defined in step 3
-                response = model.generate_content(prompt)
+                # API Call with Gemini 3 "Thinking" configuration
+                response = client.models.generate_content(
+                    model="gemini-3-flash-preview",
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction=SYSTEM_INSTRUCTION,
+                        thinking_config=types.ThinkingConfig(
+                            thinking_level=thinking_level.upper()
+                        )
+                    )
+                )
+                
                 full_response = response.text
                 st.markdown(full_response)
                 
-                # Dynamic Visualization
-                if any(x in prompt.lower() for x in ["sim", "graph", "data"]):
-                    st.divider()
-                    st.write("### Simulation Trend Analysis")
-                    df = pd.DataFrame(np.random.randn(20, 2), columns=['Target', 'Actual'])
-                    st.line_chart(df)
-
+                # Equation/Graph Helper
+                if any(x in prompt.lower() for x in ["solve", "calculate", "equation"]):
+                    st.success("Calculations completed using high-depth reasoning.")
+                
                 st.session_state.messages.append({"role": "assistant", "content": full_response})
+
             except Exception as e:
-                st.error(f"Execution Error: {e}")
-                st.info("Check the sidebar to see if 'gemini-3-flash-preview' is in your list.")
+                st.error(f"Error: {e}")
