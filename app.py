@@ -8,22 +8,45 @@ from scipy.integrate import odeint
 # --- 1. CONFIGURATION ---
 st.set_page_config(page_title="SimuExpert Solver Pro", layout="wide", page_icon="⚙️")
 
-# FIXED: Changed unsafe_allow_value to unsafe_allow_html
+# FIXED CSS: Forces black text on white backgrounds for maximum visibility
 st.markdown("""
     <style>
-    .stChatMessage { background-color: #f0f2f6; border-radius: 10px; padding: 10px; margin-bottom: 10px; }
+    /* Styling the Chat Message container */
+    [data-testid="stChatMessage"] {
+        background-color: #ffffff !important;
+        border: 1px solid #d1d5db !important;
+        border-radius: 12px !important;
+        padding: 15px !important;
+        margin-bottom: 15px !important;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+    
+    /* Forcing all text inside the chat to be Black */
+    [data-testid="stChatMessage"] p, 
+    [data-testid="stChatMessage"] li, 
+    [data-testid="stChatMessage"] span,
+    [data-testid="stChatMessage"] h1,
+    [data-testid="stChatMessage"] h2,
+    [data-testid="stChatMessage"] h3 {
+        color: #000000 !important;
+        font-weight: 400;
+    }
+
+    /* Adjusting Sidebar color for consistency */
+    section[data-testid="stSidebar"] {
+        background-color: #f8f9fa;
+    }
     </style>
     """, unsafe_allow_html=True)
 
 try:
-    # Ensure 'GEMINI_API_KEY' is set in your Streamlit Cloud Secrets
     API_KEY = st.secrets["GEMINI_API_KEY"]
     client = Client(api_key=API_KEY)
 except Exception:
     st.error("🔑 API Key missing! Add 'GEMINI_API_KEY' to Streamlit Secrets.")
     st.stop()
 
-# --- 2. PHYSICS ENGINES (The Solver Module) ---
+# --- 2. PHYSICS ENGINES ---
 def solve_thermal(initial_temp, ambient_temp):
     t = np.linspace(0, 3600, 100)
     def model(T, t):
@@ -34,11 +57,10 @@ def solve_thermal(initial_temp, ambient_temp):
 
 def solve_structural(load_val):
     x = np.linspace(0, 1, 100)
-    # Euler-Bernoulli Beam Deflection approximation
     deflection = (load_val * x**2 / 5000) * (3 - x)
     return x, deflection
 
-# --- 3. SESSION STATE (History Management) ---
+# --- 3. SESSION STATE ---
 if "history" not in st.session_state:
     st.session_state.history = {} 
 if "messages" not in st.session_state:
@@ -46,9 +68,9 @@ if "messages" not in st.session_state:
 if "current_project" not in st.session_state:
     st.session_state.current_project = "New Simulation"
 
-# --- 4. SIDEBAR: PROJECT HISTORY & PARAMETERS ---
+# --- 4. SIDEBAR ---
 with st.sidebar:
-    st.title("📚 Simulation History")
+    st.title("📚 History")
     
     if st.button("➕ Start New Project", use_container_width=True):
         st.session_state.messages = []
@@ -66,13 +88,12 @@ with st.sidebar:
     st.header("⚙️ Solver Settings")
     sim_mode = st.selectbox("Physics Mode", ["Thermal Analysis", "Structural Load"])
     input_mag = st.slider("Magnitude (Load/Temp)", 0, 1000, 100)
-    st.info("Uses Scipy ODEint for real-world physical responses.")
 
 # --- 5. SYSTEM INSTRUCTION ---
 SYSTEM_INSTRUCTION = (
     "You are a Senior Simulation Engineer. For every query:\n"
-    "1. MATH: Provide the differential equations or formulas in LaTeX.\n"
-    "2. IN/PROCESS/OUT: Breakdown the theory, Simscape steps, and real-world result.\n"
+    "1. MATH: Provide formulas in LaTeX.\n"
+    "2. IN/PROCESS/OUT: Breakdown the theory, Simscape steps, and results.\n"
     "Target: 3rd-year VIT Engineering student."
 )
 
@@ -102,16 +123,16 @@ if prompt := st.chat_input("Ask a question or type 'Simulate'"):
 
                 if any(x in prompt.lower() for x in ["simulate", "solve", "graph", "plot"]):
                     st.divider()
-                    st.subheader("📊 Numerical Solver Output")
+                    st.subheader("📊 Solver Output")
                     fig, ax = plt.subplots(figsize=(8, 4))
                     
                     if sim_mode == "Thermal Analysis":
                         t, T = solve_thermal(25, input_mag)
-                        ax.plot(t, T, color='#e74c3c', label=f'Temp Rise (Amb={input_mag}°C)')
+                        ax.plot(t, T, color='#e74c3c', linewidth=2, label='Temp Rise')
                         ax.set_xlabel("Time (s)"); ax.set_ylabel("Temp (°C)")
                     else:
                         x, y = solve_structural(input_mag)
-                        ax.plot(x, -y, color='#3498db', label=f'Deflection (Load={input_mag}N)')
+                        ax.plot(x, -y, color='#3498db', linewidth=2, label='Deflection')
                         ax.set_xlabel("Position (m)"); ax.set_ylabel("Deflection (mm)")
                     
                     ax.grid(True, alpha=0.3); ax.legend()
@@ -120,8 +141,7 @@ if prompt := st.chat_input("Ask a question or type 'Simulate'"):
                 st.session_state.messages.append({"role": "assistant", "content": res_text})
                 
                 if st.session_state.current_project == "New Simulation":
-                    project_title = prompt[:25] + "..."
-                    st.session_state.current_project = project_title
+                    st.session_state.current_project = prompt[:25] + "..."
                 
                 st.session_state.history[st.session_state.current_project] = st.session_state.messages
                 st.rerun()
