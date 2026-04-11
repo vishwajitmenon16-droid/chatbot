@@ -8,14 +8,15 @@ from scipy.integrate import odeint
 # --- 1. CONFIGURATION ---
 st.set_page_config(page_title="SimuExpert Solver Pro", layout="wide", page_icon="⚙️")
 
-# CSS to make the chat look professional
+# FIXED: Changed unsafe_allow_value to unsafe_allow_html
 st.markdown("""
     <style>
     .stChatMessage { background-color: #f0f2f6; border-radius: 10px; padding: 10px; margin-bottom: 10px; }
     </style>
-    """, unsafe_allow_value=True)
+    """, unsafe_allow_html=True)
 
 try:
+    # Ensure 'GEMINI_API_KEY' is set in your Streamlit Cloud Secrets
     API_KEY = st.secrets["GEMINI_API_KEY"]
     client = Client(api_key=API_KEY)
 except Exception:
@@ -26,7 +27,7 @@ except Exception:
 def solve_thermal(initial_temp, ambient_temp):
     t = np.linspace(0, 3600, 100)
     def model(T, t):
-        k, Q_gen = 0.001, 0.05 # Cooling constant and internal heat
+        k, Q_gen = 0.001, 0.05
         return k * (ambient_temp - T) + Q_gen
     T = odeint(model, initial_temp, t)
     return t, T
@@ -55,7 +56,6 @@ with st.sidebar:
         st.rerun()
     
     st.markdown("---")
-    # Display saved projects
     for project_name in list(st.session_state.history.keys()):
         if st.button(project_name, use_container_width=True):
             st.session_state.messages = st.session_state.history[project_name]
@@ -66,8 +66,7 @@ with st.sidebar:
     st.header("⚙️ Solver Settings")
     sim_mode = st.selectbox("Physics Mode", ["Thermal Analysis", "Structural Load"])
     input_mag = st.slider("Magnitude (Load/Temp)", 0, 1000, 100)
-    
-    st.info("The Solver uses Scipy ODEint to calculate real-world physical responses.")
+    st.info("Uses Scipy ODEint for real-world physical responses.")
 
 # --- 5. SYSTEM INSTRUCTION ---
 SYSTEM_INSTRUCTION = (
@@ -80,22 +79,19 @@ SYSTEM_INSTRUCTION = (
 # --- 6. MAIN INTERFACE ---
 st.title(f"🔍 {st.session_state.current_project}")
 
-# Display Active Chat History
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
 # --- 7. CHAT & SOLVER LOGIC ---
 if prompt := st.chat_input("Ask a question or type 'Simulate'"):
-    # Add User Message
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        with st.spinner("Solving Physics & Reasoning..."):
+        with st.spinner("Solving Physics..."):
             try:
-                # 1. AI Reasoning with Gemini 3
                 response = client.models.generate_content(
                     model="gemini-3-flash-preview",
                     contents=f"Mode: {sim_mode}, Input: {input_mag}. Prompt: {prompt}",
@@ -104,7 +100,6 @@ if prompt := st.chat_input("Ask a question or type 'Simulate'"):
                 res_text = response.text
                 st.markdown(res_text)
 
-                # 2. Visual Solver Execution
                 if any(x in prompt.lower() for x in ["simulate", "solve", "graph", "plot"]):
                     st.divider()
                     st.subheader("📊 Numerical Solver Output")
@@ -122,15 +117,12 @@ if prompt := st.chat_input("Ask a question or type 'Simulate'"):
                     ax.grid(True, alpha=0.3); ax.legend()
                     st.pyplot(fig)
 
-                # 3. Save Assistant Response
                 st.session_state.messages.append({"role": "assistant", "content": res_text})
                 
-                # 4. Update Sidebar History
                 if st.session_state.current_project == "New Simulation":
                     project_title = prompt[:25] + "..."
                     st.session_state.current_project = project_title
                 
-                # Sync the current messages to the history dictionary
                 st.session_state.history[st.session_state.current_project] = st.session_state.messages
                 st.rerun()
 
