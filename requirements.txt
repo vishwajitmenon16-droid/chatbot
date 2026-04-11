@@ -2,3 +2,4 @@ streamlit
 google-genai
 pandas
 numpy
+matplotlib
