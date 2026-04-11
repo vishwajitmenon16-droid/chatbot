@@ -3,10 +3,10 @@ from google.genai import Client, types
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import io
+from scipy.integrate import odeint
 
-# --- 1. CONFIGURATION & SECRETS ---
-st.set_page_config(page_title="SimuExpert Pro v4.0", layout="wide", page_icon="⚡")
+# --- 1. CONFIGURATION ---
+st.set_page_config(page_title="SimuExpert Solver Pro", layout="wide", page_icon="⚙️")
 
 try:
     API_KEY = st.secrets["GEMINI_API_KEY"]
@@ -15,107 +15,96 @@ except Exception:
     st.error("🔑 API Key missing! Add 'GEMINI_API_KEY' to Streamlit Secrets.")
     st.stop()
 
-# --- 2. SESSION STATE (History & Data) ---
-if "history" not in st.session_state:
-    st.session_state.history = {}
+# --- 2. THE NUMERICAL SOLVERS (The "Ansys/Simulink" Engine) ---
+def solve_thermal_runaway(initial_temp, ambient_temp, time_horizon=3600):
+    """Solves the 1st order thermal differential equation: dT/dt = k(Tamb - T) + Q_gen"""
+    def model(T, t):
+        k = 0.001  # Thermal coupling coefficient
+        Q_gen = 0.05 # Internal heat generation (Simplified)
+        dTdt = k * (ambient_temp - T) + Q_gen
+        return dTdt
+    
+    t = np.linspace(0, time_horizon, 100)
+    T = odeint(model, initial_temp, t)
+    return t, T
+
+def solve_structural_deflection(load):
+    """Solves for beam deflection (Simplified Euler-Bernoulli logic)"""
+    x = np.linspace(0, 1, 100)
+    # y = (F*x^2 / 6EI) * (3L - x)
+    deflection = (load * x**2 / 5000) * (3 - x) 
+    return x, deflection
+
+# --- 3. SESSION STATE ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
-if "current_project" not in st.session_state:
-    st.session_state.current_project = "New Simulation"
+if "history" not in st.session_state:
+    st.session_state.history = {}
 
-# --- 3. SIDEBAR: CONTROLS & HISTORY ---
+# --- 4. SIDEBAR & CONTROLS ---
 with st.sidebar:
-    st.title("🎮 Control Room")
+    st.header("🎛️ Solver Parameters")
+    sim_type = st.selectbox("Simulation Mode", ["Thermal Analysis", "Structural Load", "General Engineering"])
+    input_val = st.slider("Input Magnitude (Load/Temp)", 0, 500, 100)
     
-    # Feature 1: Dynamic Sliders (The "Digital Twin" Idea)
-    st.subheader("Physical Parameters")
-    temp = st.slider("Ambient Temp (°C)", -10, 100, 25)
-    load_factor = st.slider("Load Factor (%)", 0, 150, 100)
-    
-    # Feature 2: File Upload (The "Data Analyst" Idea)
-    st.subheader("Simulation Data")
-    uploaded_file = st.file_uploader("Upload Simulink CSV/Excel", type=["csv", "xlsx"])
-    
-    st.markdown("---")
-    st.subheader("📚 Project History")
-    if st.button("➕ New Project", use_container_width=True):
+    if st.button("➕ New Project"):
         st.session_state.messages = []
-        st.session_state.current_project = "New Simulation"
         st.rerun()
 
-    for name in list(st.session_state.history.keys()):
-        if st.button(name, key=name, use_container_width=True):
-            st.session_state.messages = st.session_state.history[name]
-            st.session_state.current_project = name
-            st.rerun()
-
-# --- 4. SYSTEM INSTRUCTION ---
+# --- 5. SYSTEM INSTRUCTION ---
 SYSTEM_INSTRUCTION = (
-    "You are a Senior Simulation Engineer. For every query:\n"
-    "1. SOLVE & EXPLAIN: Use LaTeX for equations.\n"
-    "2. THE IN, PROCESS, and OUT: Break down theory, modeling, and results.\n"
-    f"Current Simulation Context: Temp={temp}°C, Load={load_factor}%.\n"
-    "Target: 3rd-year VIT Engineering student."
+    "You are a Senior Simulation Engineer. For every prompt:\n"
+    "1. MATHEMATICAL DERIVATION: Provide the differential equations used.\n"
+    "2. THE IN, PROCESS, OUT: Explain why the numerical solver produced this specific result.\n"
+    "3. SIMULINK COMPARISON: Explain how this result matches a Simscape 'Thermal Liquid' or 'Multibody' block."
 )
 
-# --- 5. MAIN INTERFACE ---
-st.title(f"⚡ {st.session_state.current_project}")
+# --- 6. MAIN CHAT & SOLVER LOGIC ---
+st.title(f"⚙️ Engineering Solver: {sim_type}")
 
-# Handle Uploaded Data Visually
-if uploaded_file:
-    st.success("Data File Loaded!")
-    df_uploaded = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
-    with st.expander("View Raw Data"):
-        st.dataframe(df_uploaded.head())
-    st.line_chart(df_uploaded.select_dtypes(include=[np.number]))
-
-# Display Chat History
+# Display History
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# --- 6. CHAT & VISUALIZATION LOGIC ---
-if prompt := st.chat_input("Ask a question (e.g., 'Analyze the structural response with current parameters')"):
+if prompt := st.chat_input("Ask to 'Simulate' the current system..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        with st.spinner("Gemini 3 is simulating..."):
+        with st.spinner("Running Numerical Integration..."):
             try:
-                # Add context about uploaded file if it exists
-                context_prompt = prompt
-                if uploaded_file:
-                    context_prompt += f"\n\nNote: The user has uploaded a data file with columns: {list(df_uploaded.columns)}"
-
+                # API Reasoning
                 response = client.models.generate_content(
                     model="gemini-3-flash-preview",
-                    contents=context_prompt,
+                    contents=f"User wants to {prompt} using {sim_type} at magnitude {input_val}.",
                     config=types.GenerateContentConfig(system_instruction=SYSTEM_INSTRUCTION)
                 )
+                st.markdown(response.text)
                 
-                full_response = response.text
-                st.markdown(full_response)
-                
-                # Custom Visualization for "Structural/Deflection" prompts
-                if any(x in prompt.lower() for x in ["structural", "deflection", "plot", "graph"]):
-                    fig, ax = plt.subplots(figsize=(8, 4))
-                    x_vals = np.linspace(0, 10, 100)
-                    # Use the slider 'load_factor' to change the graph dynamically
-                    y_vals = (x_vals**2) * (load_factor/100) 
-                    ax.plot(x_vals, y_vals, label=f"Response at {load_factor}% Load")
-                    ax.set_title("Dynamic Structural Response")
-                    ax.legend()
-                    st.pyplot(fig)
+                # --- ACTUAL SOLVER EXECUTION ---
+                st.divider()
+                st.subheader("📊 Solver Output (Visualized)")
+                fig, ax = plt.subplots(figsize=(8, 4))
 
-                st.session_state.messages.append({"role": "assistant", "content": full_response})
+                if sim_type == "Thermal Analysis":
+                    t, T = solve_thermal_runaway(25, input_val)
+                    ax.plot(t, T, 'r-', label='Temperature Rise')
+                    ax.set_ylabel("Temp (°C)")
+                    ax.set_xlabel("Time (s)")
                 
-                # Update Project Name in History
-                if st.session_state.current_project == "New Simulation":
-                    new_name = prompt[:25] + "..."
-                    st.session_state.current_project = new_name
-                    st.session_state.history[new_name] = st.session_state.messages
-                    st.rerun()
+                elif sim_type == "Structural Load":
+                    x, y = solve_structural_deflection(input_val)
+                    ax.plot(x, -y, 'b-', label='Beam Deflection')
+                    ax.set_ylabel("Deflection (mm)")
+                    ax.set_xlabel("Position (m)")
+                
+                ax.grid(True, alpha=0.3)
+                ax.legend()
+                st.pyplot(fig)
+
+                st.session_state.messages.append({"role": "assistant", "content": response.text})
 
             except Exception as e:
-                st.error(f"Error: {e}")
+                st.error(f"Solver Error: {e}")

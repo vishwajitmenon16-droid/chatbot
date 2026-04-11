@@ -3,4 +3,4 @@ google-genai
 pandas
 numpy
 matplotlib
-openpyxl
+scipy
