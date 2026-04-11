@@ -8,33 +8,50 @@ from scipy.integrate import odeint
 # --- 1. CONFIGURATION ---
 st.set_page_config(page_title="SimuExpert Solver Pro", layout="wide", page_icon="⚙️")
 
-# FIXED CSS: Forces black text on white backgrounds for maximum visibility
+# PREMIUM DARK THEME CSS: High contrast for Engineering Data
 st.markdown("""
     <style>
-    /* Styling the Chat Message container */
+    /* Main App Background */
+    .stApp {
+        background-color: #0e1117;
+    }
+    
+    /* Sidebar Styling */
+    section[data-testid="stSidebar"] {
+        background-color: #161b22 !important;
+        border-right: 1px solid #30363d;
+    }
+
+    /* Chat Message Bubble - Dark Theme */
     [data-testid="stChatMessage"] {
-        background-color: #ffffff !important;
-        border: 1px solid #d1d5db !important;
+        background-color: #1f2937 !important; 
+        border: 1px solid #374151 !important;
         border-radius: 12px !important;
         padding: 15px !important;
         margin-bottom: 15px !important;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
     
-    /* Forcing all text inside the chat to be Black */
+    /* FORCE TEXT TO BE LIGHT GREY/WHITE FOR READABILITY */
     [data-testid="stChatMessage"] p, 
     [data-testid="stChatMessage"] li, 
     [data-testid="stChatMessage"] span,
     [data-testid="stChatMessage"] h1,
     [data-testid="stChatMessage"] h2,
-    [data-testid="stChatMessage"] h3 {
-        color: #000000 !important;
-        font-weight: 400;
+    [data-testid="stChatMessage"] h3,
+    [data-testid="stChatMessage"] div,
+    [data-testid="stMarkdownContainer"] {
+        color: #e5e7eb !important; 
+        font-family: 'Inter', sans-serif;
     }
 
-    /* Adjusting Sidebar color for consistency */
-    section[data-testid="stSidebar"] {
-        background-color: #f8f9fa;
+    /* Titles and Header Text */
+    h1, h2, h3, label {
+        color: #ffffff !important;
+    }
+
+    /* Fix for LaTeX Math visibility in Dark Mode */
+    .katex {
+        color: #ffffff !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -43,7 +60,7 @@ try:
     API_KEY = st.secrets["GEMINI_API_KEY"]
     client = Client(api_key=API_KEY)
 except Exception:
-    st.error("🔑 API Key missing! Add 'GEMINI_API_KEY' to Streamlit Secrets.")
+    st.error("🔑 API Key missing! Check your Streamlit Secrets.")
     st.stop()
 
 # --- 2. PHYSICS ENGINES ---
@@ -111,7 +128,7 @@ if prompt := st.chat_input("Ask a question or type 'Simulate'"):
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        with st.spinner("Solving Physics..."):
+        with st.spinner("Calculating Physics..."):
             try:
                 response = client.models.generate_content(
                     model="gemini-3-flash-preview",
@@ -123,19 +140,24 @@ if prompt := st.chat_input("Ask a question or type 'Simulate'"):
 
                 if any(x in prompt.lower() for x in ["simulate", "solve", "graph", "plot"]):
                     st.divider()
-                    st.subheader("📊 Solver Output")
+                    st.subheader("📊 Solver Result")
+                    
+                    # Set Matplotlib to Dark Theme
+                    plt.style.use('dark_background')
                     fig, ax = plt.subplots(figsize=(8, 4))
+                    fig.patch.set_facecolor('#1f2937') # Match chat bubble
+                    ax.set_facecolor('#1f2937')
                     
                     if sim_mode == "Thermal Analysis":
                         t, T = solve_thermal(25, input_mag)
-                        ax.plot(t, T, color='#e74c3c', linewidth=2, label='Temp Rise')
+                        ax.plot(t, T, color='#ff4b4b', linewidth=2, label='Temp Rise')
                         ax.set_xlabel("Time (s)"); ax.set_ylabel("Temp (°C)")
                     else:
                         x, y = solve_structural(input_mag)
-                        ax.plot(x, -y, color='#3498db', linewidth=2, label='Deflection')
+                        ax.plot(x, -y, color='#00d1ff', linewidth=2, label='Deflection')
                         ax.set_xlabel("Position (m)"); ax.set_ylabel("Deflection (mm)")
                     
-                    ax.grid(True, alpha=0.3); ax.legend()
+                    ax.grid(True, alpha=0.2); ax.legend()
                     st.pyplot(fig)
 
                 st.session_state.messages.append({"role": "assistant", "content": res_text})
