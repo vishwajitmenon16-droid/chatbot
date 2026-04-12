@@ -4,25 +4,16 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.integrate import odeint
+import io
 
 # --- 1. CONFIGURATION ---
 st.set_page_config(page_title="SimuExpert Solver Pro", layout="wide", page_icon="⚙️")
 
-# PREMIUM DARK THEME CSS: High contrast for Engineering Data
+# PREMIUM DARK THEME CSS
 st.markdown("""
     <style>
-    /* Main App Background */
-    .stApp {
-        background-color: #0e1117;
-    }
-    
-    /* Sidebar Styling */
-    section[data-testid="stSidebar"] {
-        background-color: #161b22 !important;
-        border-right: 1px solid #30363d;
-    }
-
-    /* Chat Message Bubble - Dark Theme */
+    .stApp { background-color: #0e1117; }
+    section[data-testid="stSidebar"] { background-color: #161b22 !important; border-right: 1px solid #30363d; }
     [data-testid="stChatMessage"] {
         background-color: #1f2937 !important; 
         border: 1px solid #374151 !important;
@@ -30,29 +21,12 @@ st.markdown("""
         padding: 15px !important;
         margin-bottom: 15px !important;
     }
-    
-    /* FORCE TEXT TO BE LIGHT GREY/WHITE FOR READABILITY */
-    [data-testid="stChatMessage"] p, 
-    [data-testid="stChatMessage"] li, 
-    [data-testid="stChatMessage"] span,
-    [data-testid="stChatMessage"] h1,
-    [data-testid="stChatMessage"] h2,
-    [data-testid="stChatMessage"] h3,
-    [data-testid="stChatMessage"] div,
-    [data-testid="stMarkdownContainer"] {
+    [data-testid="stChatMessage"] p, [data-testid="stChatMessage"] li, [data-testid="stChatMessage"] span,
+    [data-testid="stChatMessage"] h1, [data-testid="stChatMessage"] h2, [data-testid="stChatMessage"] h3,
+    [data-testid="stMarkdownContainer"], .katex {
         color: #e5e7eb !important; 
-        font-family: 'Inter', sans-serif;
     }
-
-    /* Titles and Header Text */
-    h1, h2, h3, label {
-        color: #ffffff !important;
-    }
-
-    /* Fix for LaTeX Math visibility in Dark Mode */
-    .katex {
-        color: #ffffff !important;
-    }
+    h1, h2, h3, label { color: #ffffff !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -60,7 +34,7 @@ try:
     API_KEY = st.secrets["GEMINI_API_KEY"]
     client = Client(api_key=API_KEY)
 except Exception:
-    st.error("🔑 API Key missing! Check your Streamlit Secrets.")
+    st.error("🔑 API Key missing! Check Streamlit Secrets.")
     st.stop()
 
 # --- 2. PHYSICS ENGINES ---
@@ -85,10 +59,9 @@ if "messages" not in st.session_state:
 if "current_project" not in st.session_state:
     st.session_state.current_project = "New Simulation"
 
-# --- 4. SIDEBAR ---
+# --- 4. SIDEBAR: TOOLS & HISTORY ---
 with st.sidebar:
     st.title("📚 History")
-    
     if st.button("➕ Start New Project", use_container_width=True):
         st.session_state.messages = []
         st.session_state.current_project = "New Simulation"
@@ -102,6 +75,9 @@ with st.sidebar:
             st.rerun()
 
     st.markdown("---")
+    st.header("📂 Data Analyst")
+    uploaded_file = st.file_uploader("Upload Simulink CSV/Excel", type=["csv", "xlsx"])
+
     st.header("⚙️ Solver Settings")
     sim_mode = st.selectbox("Physics Mode", ["Thermal Analysis", "Structural Load"])
     input_mag = st.slider("Magnitude (Load/Temp)", 0, 1000, 100)
@@ -110,42 +86,53 @@ with st.sidebar:
 SYSTEM_INSTRUCTION = (
     "You are a Senior Simulation Engineer. For every query:\n"
     "1. MATH: Provide formulas in LaTeX.\n"
-    "2. IN/PROCESS/OUT: Breakdown the theory, Simscape steps, and results.\n"
+    "2. DATA ANALYSIS: If a file is uploaded, analyze the trends and columns.\n"
+    "3. IN/PROCESS/OUT: Breakdown theory, Simscape steps, and results.\n"
     "Target: 3rd-year VIT Engineering student."
 )
 
 # --- 6. MAIN INTERFACE ---
 st.title(f"🔍 {st.session_state.current_project}")
 
+# Data Preview if file is uploaded
+if uploaded_file:
+    with st.expander("📊 Preview Uploaded Data"):
+        df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
+        st.dataframe(df.head())
+        st.line_chart(df.select_dtypes(include=[np.number]))
+
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
 # --- 7. CHAT & SOLVER LOGIC ---
-if prompt := st.chat_input("Ask a question or type 'Simulate'"):
+if prompt := st.chat_input("Ask about your data or type 'Simulate'"):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        with st.spinner("Calculating Physics..."):
+        with st.spinner("Analyzing & Solving..."):
             try:
+                # Add file context to the AI if it exists
+                ai_prompt = prompt
+                if uploaded_file:
+                    ai_prompt += f"\n\nContext: The user has uploaded a file named {uploaded_file.name} with columns: {list(df.columns)}. Use this for your analysis."
+
                 response = client.models.generate_content(
                     model="gemini-3-flash-preview",
-                    contents=f"Mode: {sim_mode}, Input: {input_mag}. Prompt: {prompt}",
+                    contents=ai_prompt,
                     config=types.GenerateContentConfig(system_instruction=SYSTEM_INSTRUCTION)
                 )
                 res_text = response.text
                 st.markdown(res_text)
 
+                # Solver Graph Logic
                 if any(x in prompt.lower() for x in ["simulate", "solve", "graph", "plot"]):
                     st.divider()
-                    st.subheader("📊 Solver Result")
-                    
-                    # Set Matplotlib to Dark Theme
                     plt.style.use('dark_background')
                     fig, ax = plt.subplots(figsize=(8, 4))
-                    fig.patch.set_facecolor('#1f2937') # Match chat bubble
+                    fig.patch.set_facecolor('#1f2937')
                     ax.set_facecolor('#1f2937')
                     
                     if sim_mode == "Thermal Analysis":
@@ -169,4 +156,4 @@ if prompt := st.chat_input("Ask a question or type 'Simulate'"):
                 st.rerun()
 
             except Exception as e:
-                st.error(f"Solver Error: {e}")
+                st.error(f"Error: {e}")
