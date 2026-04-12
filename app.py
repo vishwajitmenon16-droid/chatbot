@@ -59,7 +59,7 @@ if "messages" not in st.session_state:
 if "current_project" not in st.session_state:
     st.session_state.current_project = "New Simulation"
 
-# --- 4. SIDEBAR: TOOLS & HISTORY ---
+# --- 4. SIDEBAR: CLEAN VERSION (No Slider) ---
 with st.sidebar:
     st.title("📚 History")
     if st.button("➕ Start New Project", use_container_width=True):
@@ -76,25 +76,24 @@ with st.sidebar:
 
     st.markdown("---")
     st.header("📂 Data Analyst")
-    uploaded_file = st.file_uploader("Upload Simulink CSV/Excel", type=["csv", "xlsx"])
-
-    st.header("⚙️ Solver Settings")
-    sim_mode = st.selectbox("Physics Mode", ["Thermal Analysis", "Structural Load"])
-    input_mag = st.slider("Magnitude (Load/Temp)", 0, 1000, 100)
+    uploaded_file = st.file_uploader("Upload CSV/Excel", type=["csv", "xlsx"])
+    
+    st.header("⚙️ Solver Mode")
+    sim_mode = st.selectbox("Physics Type", ["Thermal Analysis", "Structural Load"])
 
 # --- 5. SYSTEM INSTRUCTION ---
 SYSTEM_INSTRUCTION = (
     "You are a Senior Simulation Engineer. For every query:\n"
     "1. MATH: Provide formulas in LaTeX.\n"
-    "2. DATA ANALYSIS: If a file is uploaded, analyze the trends and columns.\n"
-    "3. IN/PROCESS/OUT: Breakdown theory, Simscape steps, and results.\n"
+    "2. DATA ANALYSIS: If a file is uploaded, analyze the trends.\n"
+    "3. SOLVER: If the user asks to simulate, assume a default magnitude of 100 unless they specify a number.\n"
+    "4. IN/PROCESS/OUT: Breakdown theory, Simscape steps, and results.\n"
     "Target: 3rd-year VIT Engineering student."
 )
 
 # --- 6. MAIN INTERFACE ---
 st.title(f"🔍 {st.session_state.current_project}")
 
-# Data Preview if file is uploaded
 if uploaded_file:
     with st.expander("📊 Preview Uploaded Data"):
         df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
@@ -106,18 +105,22 @@ for message in st.session_state.messages:
         st.markdown(message["content"])
 
 # --- 7. CHAT & SOLVER LOGIC ---
-if prompt := st.chat_input("Ask about your data or type 'Simulate'"):
+if prompt := st.chat_input("Ask about your data or type 'Simulate 71'"):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        with st.spinner("Analyzing & Solving..."):
+        with st.spinner("Analyzing..."):
             try:
-                # Add file context to the AI if it exists
-                ai_prompt = prompt
+                # Extract number from prompt if it exists, else default to 100
+                import re
+                nums = re.findall(r'\d+', prompt)
+                mag = int(nums[0]) if nums else 100
+
+                ai_prompt = f"Mode: {sim_mode}, Magnitude: {mag}. Prompt: {prompt}"
                 if uploaded_file:
-                    ai_prompt += f"\n\nContext: The user has uploaded a file named {uploaded_file.name} with columns: {list(df.columns)}. Use this for your analysis."
+                    ai_prompt += f"\n\nFile Context: {uploaded_file.name} with columns {list(df.columns)}"
 
                 response = client.models.generate_content(
                     model="gemini-3-flash-preview",
@@ -127,7 +130,6 @@ if prompt := st.chat_input("Ask about your data or type 'Simulate'"):
                 res_text = response.text
                 st.markdown(res_text)
 
-                # Solver Graph Logic
                 if any(x in prompt.lower() for x in ["simulate", "solve", "graph", "plot"]):
                     st.divider()
                     plt.style.use('dark_background')
@@ -136,12 +138,12 @@ if prompt := st.chat_input("Ask about your data or type 'Simulate'"):
                     ax.set_facecolor('#1f2937')
                     
                     if sim_mode == "Thermal Analysis":
-                        t, T = solve_thermal(25, input_mag)
-                        ax.plot(t, T, color='#ff4b4b', linewidth=2, label='Temp Rise')
+                        t, T = solve_thermal(25, mag)
+                        ax.plot(t, T, color='#ff4b4b', linewidth=2, label=f'Temp Rise ({mag}°C)')
                         ax.set_xlabel("Time (s)"); ax.set_ylabel("Temp (°C)")
                     else:
-                        x, y = solve_structural(input_mag)
-                        ax.plot(x, -y, color='#00d1ff', linewidth=2, label='Deflection')
+                        x, y = solve_structural(mag)
+                        ax.plot(x, -y, color='#00d1ff', linewidth=2, label=f'Deflection ({mag}N)')
                         ax.set_xlabel("Position (m)"); ax.set_ylabel("Deflection (mm)")
                     
                     ax.grid(True, alpha=0.2); ax.legend()
